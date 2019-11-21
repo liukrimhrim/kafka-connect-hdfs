@@ -79,16 +79,10 @@
             <version>${kafka.version}</version>
             <scope>provided</scope>
         </dependency>
-<!--        <dependency>-->
-<!--            <groupId>io.confluent</groupId>-->
-<!--            <artifactId>kafka-connect-storage-common</artifactId>-->
-<!--            <version>${confluent.version}</version>-->
-<!--        </dependency>-->
         <dependency>
             <groupId>io.confluent</groupId>
             <artifactId>kafka-connect-storage-common</artifactId>
-            <version>5.0.4-SNAPSHOT</version>
-            <scope>provided</scope>
+            <version>${confluent.version}</version>
         </dependency>
         <dependency>
             <groupId>io.confluent</groupId>

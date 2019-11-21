@@ -16,14 +16,11 @@
 package io.confluent.connect.hdfs.avro;
 
 import io.confluent.connect.storage.hive.HiveConfig;
-import java.util.HashMap;
-import java.util.Map;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Table;
-import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 
 import java.util.List;
@@ -36,7 +33,6 @@ import io.confluent.connect.hdfs.partitioner.Partitioner;
 import io.confluent.connect.storage.common.StorageCommonConfig;
 import io.confluent.connect.storage.errors.HiveMetaStoreException;
 import io.confluent.connect.storage.hive.HiveSchemaConverter;
-import org.apache.kafka.connect.data.SchemaBuilder;
 
 public class AvroHiveUtil extends HiveUtil {
 
@@ -65,11 +61,7 @@ public class AvroHiveUtil extends HiveUtil {
   public void createTable(String database, String tableName, Schema schema, Partitioner partitioner)
       throws HiveMetaStoreException {
     Table table;
-    if (!logicalTypeEnabled) {
-      table = constructAvroTable(database, tableName, stripOffLogicalType(schema), partitioner);
-    } else {
-      table = constructAvroTable(database, tableName, schema, partitioner);
-    }
+    table = constructAvroTable(database, tableName, schema, partitioner);
     hiveMetaStore.createTable(table);
   }
 
@@ -80,10 +72,10 @@ public class AvroHiveUtil extends HiveUtil {
       Schema schema
   ) throws HiveMetaStoreException {
     Table table = hiveMetaStore.getTable(database, tableName);
-    if (!logicalTypeEnabled) {
-      schema = stripOffLogicalType(schema);
-    }
-    table.getParameters().put(AVRO_SCHEMA_LITERAL, avroData.fromConnectSchema(schema).toString());
+    List<FieldSchema> columns = logicalTypeEnabled
+        ? HiveSchemaConverter.convertSchemaMaybeLogical(schema) :
+        HiveSchemaConverter.convertSchema(schema);
+    table.setFields(columns);
     hiveMetaStore.alterTable(table);
   }
 
@@ -106,46 +98,12 @@ public class AvroHiveUtil extends HiveUtil {
     } catch (HiveException e) {
       throw new HiveMetaStoreException("Cannot find input/output format:", e);
     }
-    List<FieldSchema> columns = HiveSchemaConverter.convertSchema(schema);
+    // convert copycat schema schema to Hive columns
+    List<FieldSchema> columns = logicalTypeEnabled
+        ? HiveSchemaConverter.convertSchemaMaybeLogical(schema) :
+        HiveSchemaConverter.convertSchema(schema);
     table.setFields(columns);
     table.setPartCols(partitioner.partitionFields());
-    if (!logicalTypeEnabled) {
-      schema = stripOffLogicalType(schema);
-    }
-    table.getParameters().put(AVRO_SCHEMA_LITERAL, avroData.fromConnectSchema(schema).toString());
     return table;
-  }
-
-  protected static Schema stripOffLogicalType(Schema schema) {
-    switch (schema.type()) {
-      case ARRAY:
-        return SchemaBuilder.array(stripOffLogicalType(schema.valueSchema())).schema();
-      case MAP:
-        return SchemaBuilder.map(
-            stripOffLogicalType(schema.keySchema()),
-            stripOffLogicalType(schema.valueSchema())
-        ).schema();
-      case STRUCT:
-        SchemaBuilder builder = SchemaBuilder.struct();
-        for (Field f : schema.fields()) {
-          builder.field(f.name(), stripOffLogicalType(f.schema()));
-        }
-        return builder.schema();
-      default:
-        Map<String, String> parameters = schema.parameters()
-            == null ? new HashMap<>() : new HashMap<>(schema.parameters());
-        parameters.remove(AVRO_LOGICAL_TYPE_PROP);
-        SchemaBuilder schemaBuilder = new SchemaBuilder(schema.type())
-            .version(schema.version())
-            .doc(schema.doc())
-            .name(null)
-            .parameters(parameters);
-        if (schema.defaultValue() != null) {
-          schemaBuilder.defaultValue(schema.defaultValue());
-        }
-        return schema.isOptional()
-            ? schemaBuilder.optional().schema()
-            : schemaBuilder.optional().schema();
-    }
   }
 }
